@@ -66,6 +66,7 @@ public class RestServices {
 	public static final String PATH_LIST = "list";
 	public static final String PATH_FEED = "feed";
 	public static final String PATH_CHANGES = "changes";
+	public static final String PATH_APIDOCS = "api-docs";
 	
 	public static final String PARAM_CONTENTTYPE = "contenttype";
 	public static final String PARAM_SINCE = "since";

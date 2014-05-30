@@ -31,20 +31,38 @@ public class RestServiceRequest {
 	private boolean autoLogout;
 	private ISession activeSession;
 
+	/**
+	 * 
+	 * @param request
+	 * @param response
+	 * @param responseType Override response content type
+	 */
+	public RestServiceRequest(HttpServletRequest request, HttpServletResponse response, ResponseType responseType) {
+		this(request, response);
+		this.responseContentType = responseType;
+		initDataWriter(response);
+	}
+	
 	public RestServiceRequest(HttpServletRequest request, HttpServletResponse response) {
 		this.request = request;
 		this.response = response;
 		
 		this.requestContentType = determineRequestContentType(request);
 		this.responseContentType = determineResponseContentType(request);
+		
+		initDataWriter(response);
+	}
 
+	private void initDataWriter(HttpServletResponse response) {
 		try {
+			
+			
 			this.datawriter = new DataWriter(response.getOutputStream(), responseContentType == ResponseType.HTML ? DataWriter.HTML : responseContentType == ResponseType.XML ? DataWriter.XML : DataWriter.JSON);
 		} catch (IOException e) {
 			throw new RuntimeException(e);
-		}
+		}		
 	}
-
+	
 	boolean authenticate(String role, ISession existingSession) {
 		if ("*".equals(role)) {
 			this.context = Core.createSystemContext();
@@ -73,7 +91,7 @@ public class RestServiceRequest {
 					return false;
 				}
 				
-				//same user as the one in the current session? recylcle the session
+				//same user as the one in the current session? recycle the session
 				if (existingSession != null && session.getId().equals(existingSession.getId()) && existingSession.getUser().getName().equals(session.getUser().getName())) {
 					Core.logout(session);
 					session = existingSession;

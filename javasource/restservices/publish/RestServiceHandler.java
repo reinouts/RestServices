@@ -16,6 +16,7 @@ import org.json.JSONObject;
 import restservices.RestServices;
 import restservices.proxies.ServiceDefinition;
 import restservices.publish.RestPublishException.RestExceptionType;
+import restservices.publish.RestServiceRequest.ResponseType;
 import restservices.util.Utils;
 
 import com.google.common.collect.ImmutableMap;
@@ -26,6 +27,7 @@ import com.mendix.m2ee.api.IMxRuntimeRequest;
 import com.mendix.m2ee.api.IMxRuntimeResponse;
 import com.mendix.integration.WebserviceException;
 import com.mendix.systemwideinterfaces.core.IContext;
+
 import communitycommons.XPath;
 
 public class RestServiceHandler extends RequestHandler{
@@ -90,69 +92,82 @@ public class RestServiceHandler extends RequestHandler{
 		} catch (MalformedURLException e1) {
 			throw new IllegalStateException(e1);
 		}
-		path = u.getPath().substring(1 + RestServices.PATH_REST.length()); //Path which is passed to this request is already decode and therefor useless...
+		path = u.getPath().substring(1 + RestServices.PATH_REST.length()); //Path which is passed to this request is already decode and therefore useless...
 		
 		String[] parts = path.isEmpty() ? new String[]{} : path.split("/");
 
 		response.setCharacterEncoding(RestServices.UTF8);
 		response.setHeader("Expires", "-1");
-
+		
+		// FIXME allow swagger to access localhost, to be removed!
+		response.setHeader("Access-Control-Allow-Origin", "*");
+		response.setHeader("Access-Control-Allow-Headers", "origin, authorization");
+		response.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+		//
+		
 		if (RestServices.LOGPUBLISH.isDebugEnabled())
 			RestServices.LOGPUBLISH.debug("incoming request: " + Utils.getRequestUrl(request));
 	
-		RestServiceRequest rsr = new RestServiceRequest(request, response);
-		try {
-			PublishedService service = null;
-			PublishedMicroflow mf = null;
-			if (parts.length > 0) {
-				service = RestServices.getService(parts[0]);
-				mf = RestServices.getPublishedMicroflow(parts[0]);
-				if (service == null && mf == null) 
-					throw new RestPublishException(RestExceptionType.NOT_FOUND, "Unknown service: '" + parts[0] + "'");
-			}
-
-			if (service != null && !isMetaDataRequest(method, parts, rsr) && !rsr.authenticate(service.getRequiredRole(), getSessionFromRequest(req))){
-				throw new RestPublishException(RestExceptionType.UNAUTHORIZED, "Unauthorized. Please provide valid credentials or set up a Mendix user session");
-			}
-			else if (mf != null && !rsr.authenticate(mf.getRequiredRole(), getSessionFromRequest(req))) {
-				throw new RestPublishException(RestExceptionType.UNAUTHORIZED, "Unauthorized. Please provide valid credentials or set up a Mendix user session");
-			}
-			
-			if (mf != null) {
-				if (isMetaDataRequest(method, parts, rsr))
-					mf.serveDescription(rsr);
+		
+		if (RestServices.PATH_APIDOCS.equals(parts[0])) {
+			RestServiceRequest rsr = new RestServiceRequest(request, response, ResponseType.JSON);
+			SwaggerServiceDescriber.serveServiceOverview(rsr); //possibly pass service def, too
+			rsr.dispose();
+		} else {
+			RestServiceRequest rsr = new RestServiceRequest(request, response);
+			try {				
+				PublishedService service = null;
+				PublishedMicroflow mf = null;
+				if (parts.length > 0) {
+					service = RestServices.getService(parts[0]);
+					mf = RestServices.getPublishedMicroflow(parts[0]);
+					if (service == null && mf == null) 
+						throw new RestPublishException(RestExceptionType.NOT_FOUND, "Unknown service: '" + parts[0] + "'");
+				}
+	
+				if (service != null && !isMetaDataRequest(method, parts, rsr) && !rsr.authenticate(service.getRequiredRole(), getSessionFromRequest(req))){
+					throw new RestPublishException(RestExceptionType.UNAUTHORIZED, "Unauthorized. Please provide valid credentials or set up a Mendix user session");
+				}
+				else if (mf != null && !rsr.authenticate(mf.getRequiredRole(), getSessionFromRequest(req))) {
+					throw new RestPublishException(RestExceptionType.UNAUTHORIZED, "Unauthorized. Please provide valid credentials or set up a Mendix user session");
+				}
+				
+				if (mf != null) {
+					if (isMetaDataRequest(method, parts, rsr))
+						mf.serveDescription(rsr);
+					else
+						mf.execute(rsr);
+				}
 				else
-					mf.execute(rsr);
+					dispatch(method, parts, rsr, service);
+				
+				if (rsr.getContext() != null && rsr.getContext().isInTransaction())
+					rsr.getContext().endTransaction();
+				
+				if (RestServices.LOGPUBLISH.isDebugEnabled())
+					RestServices.LOGPUBLISH.debug("Served " + requestStr + " in " + (System.currentTimeMillis() - start) + "ms.");
 			}
-			else
-				dispatch(method, parts, rsr, service);
-			
-			if (rsr.getContext() != null && rsr.getContext().isInTransaction())
-				rsr.getContext().endTransaction();
-			
-			if (RestServices.LOGPUBLISH.isDebugEnabled())
-				RestServices.LOGPUBLISH.debug("Served " + requestStr + " in " + (System.currentTimeMillis() - start) + "ms.");
-		}
-		catch(RestPublishException rre) {
-			RestServices.LOGPUBLISH.warn("Failed to serve " + requestStr + " " + rre.getType() + " " + rre.getMessage());
-			rollback(rsr);
-			
-			serveErrorPage(rsr, rre.getStatusCode(), rre.getType().toString() + ": " + requestStr, rre.getMessage());
-		}
-		catch(Throwable e) {
-			rollback(rsr);
-			Throwable cause = ExceptionUtils.getRootCause(e);
-			if (cause instanceof WebserviceException) {
-				RestServices.LOGPUBLISH.warn("Invalid request " + requestStr + ": " +cause.getMessage());
-				serveErrorPage(rsr, HttpStatus.SC_BAD_REQUEST, "Invalid request data at: " + requestStr, cause.getMessage());
+			catch(RestPublishException rre) {
+				RestServices.LOGPUBLISH.warn("Failed to serve " + requestStr + " " + rre.getType() + " " + rre.getMessage());
+				rollback(rsr);
+				
+				serveErrorPage(rsr, rre.getStatusCode(), rre.getType().toString() + ": " + requestStr, rre.getMessage());
 			}
-			else { 
-				RestServices.LOGPUBLISH.error("Failed to serve " + requestStr + ": " +e.getMessage(), e);
-				serveErrorPage(rsr, HttpStatus.SC_INTERNAL_SERVER_ERROR, "Failed to serve: " + requestStr, "An internal server error occurred. Please contact a system administrator");
+			catch(Throwable e) {
+				rollback(rsr);
+				Throwable cause = ExceptionUtils.getRootCause(e);
+				if (cause instanceof WebserviceException) {
+					RestServices.LOGPUBLISH.warn("Invalid request " + requestStr + ": " +cause.getMessage());
+					serveErrorPage(rsr, HttpStatus.SC_BAD_REQUEST, "Invalid request data at: " + requestStr, cause.getMessage());
+				}
+				else { 
+					RestServices.LOGPUBLISH.error("Failed to serve " + requestStr + ": " +e.getMessage(), e);
+					serveErrorPage(rsr, HttpStatus.SC_INTERNAL_SERVER_ERROR, "Failed to serve: " + requestStr, "An internal server error occurred. Please contact a system administrator");
+				}
 			}
-		}
-		finally {
-			rsr.dispose(); 
+			finally {
+				rsr.dispose(); 
+			}
 		}
 	}
 

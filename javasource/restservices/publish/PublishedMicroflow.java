@@ -233,4 +233,11 @@ public class PublishedMicroflow {
 		
 		rsr.endDoc();
 	}
+	
+	public void serveSwaggerDescription(RestServiceRequest rsr) {
+				
+		rsr.datawriter.object()
+			.key("FIXME").value(getName())
+			.endObject();
+	}
 }
