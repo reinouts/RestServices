@@ -19,7 +19,7 @@ public class SwaggerServiceDescriber {
 	 * The Resource Listing serves as the root document for the API description. 
 	 * It contains general information about the API and an inventory of the available resources.
 	 *
-	 *By default, this document SHOULD be served at the /api-docs path.
+	 * By default, this document SHOULD be served at the /api-docs path.
 	 */
 	public static void serveServiceOverview(RestServiceRequest rsr) {
 
@@ -42,4 +42,11 @@ public class SwaggerServiceDescriber {
 		rsr.datawriter.endArray().endObject();
 	}
 	
+	protected static void listOperations(RestServiceRequest rsr)
+	{
+		rsr.datawriter.array();
+		
+//		RestServices.getServiceNames()
+//		RestServices.getService(name)
+	}
 }

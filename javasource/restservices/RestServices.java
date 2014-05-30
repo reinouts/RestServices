@@ -93,7 +93,7 @@ public class RestServices {
 		if (servicesByEntity.containsKey(entityType))
 			return servicesByEntity.get(entityType);
 		
-		//if not look into super entitites as well!
+		//if not look into super entities as well!
 		IMetaObject meta = Core.getMetaObject(entityType);
 		if (meta.getSuperObject() != null) {
 			PublishedService superService = getServiceForEntity(meta.getSuperName());
