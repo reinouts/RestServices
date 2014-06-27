@@ -10,6 +10,9 @@
 <project name="RestServices" default="default" basedir=".">
     <description>Builds, tests, and runs the project RestServices.</description>
     <import file="nbproject/build-impl.xml"/>
+    <property name="deployment" location="deployment" />
+    <property name="model" location="${deployment}/model" />
+
     <!--
 
     There exist several targets which are by default empty and which can be 
@@ -134,5 +137,54 @@
                 </java>
             </sequential>
         </macrodef>
+    </target>
+    
+    <target depends="init,clean-custom-classes" name="-do-clean">
+        <delete dir="${build.dir}"/>
+        <delete dir="${dist.dir}" followsymlinks="false" includeemptydirs="true"/>
+        <!-- deleting our model means that we have to export it from the modeler again <delete dir="${model}" /> -->
+        <!-- doing this deletes bndbuild.xml as well, we need it <delete dir="${deployment}/run" /> -->
     </target>    
+    <target name="clean-custom-classes" description="clean the compiled custom java action classes">
+        <delete>
+            <fileset dir="${deployment}/run/bin" includes="**/*.class" />
+        </delete>
+    </target>
+    <target name="deploy" description="deploy the project">
+        <unzip src="C:/Program Files (x86)/Mendix/5.5.0\modeler\deployment.mxz" dest="${deployment}" />
+        <copy todir="${model}/lib/userlib">
+            <fileset dir="userlib">
+                <exclude name="**/*.jar" />
+            </fileset>
+        </copy>
+        <copy todir="${model}/resources">
+            <fileset dir="resources" />
+        </copy>
+    </target>
+
+    <target depends="bndbuild,deploy" name="-post-compile"/>
+
+    <target name="bndbuild" description="Compile Java actions">
+        <mkdir dir="${deployment}/run/bin" />
+        <mkdir dir="${deployment}/model/bundles" />
+        <javac destdir="${deployment}/run/bin" includeAntRuntime="false" debug="true" debuglevel="lines,source" encoding="UTF-8">
+            <src path="javasource" />
+            <classpath>
+                <fileset file="C:/Program Files (x86)/Mendix/5.5.0/runtime/bundles/biz.aQute.bnd.annotation-2.1.0.jar" />
+                <fileset file="C:/Program Files (x86)/Mendix/5.5.0/runtime/bundles/org.scala-lang.scala-library-2.10.2.jar" />
+                <fileset file="C:/Program Files (x86)/Mendix/5.5.0/runtime/bundles/json.jar" />
+                <fileset file="C:/Program Files (x86)/Mendix/5.5.0/runtime/bundles/logging.jar" />
+                <fileset file="C:/Program Files (x86)/Mendix/5.5.0/runtime/bundles/m2ee-api.jar" />
+                <fileset file="C:/Program Files (x86)/Mendix/5.5.0/runtime/bundles/mxruntime.jar" />
+                <fileset file="C:/Program Files (x86)/Mendix/5.5.0/runtime/bundles/integration.jar" />
+                <fileset file="C:/Program Files (x86)/Mendix/5.5.0/runtime/bundles/osgi.cmpn-4.2.0.jar" />
+                <fileset file="C:/Program Files (x86)/Mendix/5.5.0/runtime/bundles/webui.jar" />
+                <fileset file="C:/Program Files (x86)/Mendix/5.5.0/runtime/bundles/javax.servlet-3.0.0.jar" />
+                <fileset dir="userlib">
+                    <include name="*.jar" />
+                </fileset>
+            </classpath>
+        </javac>
+        <ant antfile="${deployment}/run/bndbuild.xml" target="build" />
+    </target>
 </project>

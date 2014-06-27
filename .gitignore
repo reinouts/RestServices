@@ -19,3 +19,4 @@ proxies
 #mxgit-marker-end
 /nbproject/private/
 /build/
+/nbdist/

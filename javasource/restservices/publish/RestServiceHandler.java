@@ -119,14 +119,19 @@ public class RestServiceHandler extends RequestHandler {
 		// RestServiceRequest rsr = new RestServiceRequest(request, response,
 		// ResponseType.JSON);
 
+                boolean isSwagger = false;
+                
 		try
 		{
 			PublishedService service = null;
 			PublishedMicroflow mf = null;
 			if (ArrayUtils.isNotEmpty(parts))
 			{
-				if (RestServices.PATH_APIDOCS.equals(firstPart))
+				if (RestServices.PATH_APIDOCS.equals(firstPart)) 
+                                {
 					SwaggerServiceDescriber.serveServiceOverview(rsr); // possibly pass service description?
+                                        isSwagger = true;
+                                }
 				else
 				{
 					service = RestServices.getService(firstPart);
@@ -157,7 +162,7 @@ public class RestServiceHandler extends RequestHandler {
 					mf.serveDescription(rsr);
 				else
 					mf.execute(rsr);
-			} else
+			} else if (!isSwagger)
 				dispatch(method, parts, rsr, service);
 
 			if (rsr.getContext() != null && rsr.getContext().isInTransaction())
