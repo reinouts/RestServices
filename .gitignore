@@ -17,3 +17,5 @@ proxies
 /*.mpr.left*
 /*.mpr.right*
 #mxgit-marker-end
+/nbproject/private/
+/build/

@@ -27,7 +27,6 @@ import com.mendix.m2ee.api.IMxRuntimeRequest;
 import com.mendix.m2ee.api.IMxRuntimeResponse;
 import com.mendix.integration.WebserviceException;
 import com.mendix.systemwideinterfaces.core.IContext;
-import com.sun.xml.internal.ws.util.StringUtils;
 
 import communitycommons.XPath;
 

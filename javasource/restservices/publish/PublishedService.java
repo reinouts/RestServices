@@ -130,7 +130,7 @@ public class PublishedService {
 		if (offset >= 0 ^ limit >= 0)
 			throw new RestPublishException(RestExceptionType.BAD_REQUEST, "'offset' and 'limit' parameters should both be provided and positive, or none of them");
 		if (offset >= 0 && limit < 1)
-			throw new RestPublishException(RestExceptionType.BAD_REQUEST, "'limit' should be positive and larget than zero");
+			throw new RestPublishException(RestExceptionType.BAD_REQUEST, "'limit' should be positive and larger than zero");
 		
 		rsr.startDoc();
 		rsr.datawriter.array();
