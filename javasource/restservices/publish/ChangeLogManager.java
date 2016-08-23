@@ -7,16 +7,15 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import javax.servlet.AsyncContext;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.json.JSONObject;
 
 import restservices.RestServices;
 import restservices.proxies.ChangeItem;
 import restservices.proxies.ChangeLog;
-import restservices.proxies.ServiceDefinition;
+import restservices.proxies.DataServiceDefinition;
 import restservices.publish.RestPublishException.RestExceptionType;
 import restservices.util.JSONSchemaBuilder;
-import restservices.util.JsonSerializer;
 import restservices.util.RestServiceRuntimeException;
 import restservices.util.Utils;
 
@@ -32,12 +31,12 @@ import communitycommons.XPath.IBatchProcessor;
 
 public class ChangeLogManager {
 	
-	private PublishedService service;
+	private DataService service;
 	private final List<ChangeLogConsumer> consumers = new Vector<ChangeLogConsumer>(); 
 	private volatile ChangeLog changeLog;
 	private volatile boolean isRebuildingChangeLog = false;
 	
-	public ChangeLogManager(PublishedService service) throws CoreException {
+	public ChangeLogManager(DataService service) throws CoreException {
 		this.service = service;
 		if (service.def.getEnableChangeLog() && service.def.getEnableGet()) {
 			IContext context = Core.createSystemContext();
@@ -290,10 +289,10 @@ public class ChangeLogManager {
 			return;
 		
 		//publishDelete has no checksonraint, since, if the object was not published yet, there will be no objectstate created or updated if source is deleted
-		PublishedService service = RestServices.getServiceForEntity(source.getType());
+		DataService service = RestServices.getServiceForEntity(source.getType());
 		
 		if (!service.def.getEnableChangeLog()) {
-			RestServices.LOGPUBLISH.warn("Skipped publishing delete, changetracking is not enabled for service " + service.getName());
+			RestServices.LOGPUBLISH.warn("Skipped publishing delete, changetracking is not enabled for service " + service.getRelativeUrl());
 			return;
 		}
 		
@@ -320,10 +319,10 @@ public class ChangeLogManager {
 		if (source == null)
 			return;
 		
-		PublishedService service = RestServices.getServiceForEntity(source.getType());
+		DataService service = RestServices.getServiceForEntity(source.getType());
 		
 		if (!service.def.getEnableChangeLog()) {
-			RestServices.LOGPUBLISH.warn("Skipped publishing update, changetracking is not enabled for service " + service.getName());
+			RestServices.LOGPUBLISH.warn("Skipped publishing update, changetracking is not enabled for service " + service.getRelativeUrl());
 			return;
 		}	
 		service.getChangeLogManager().publishUpdateHelper(context, source, checkConstraint);
@@ -371,8 +370,8 @@ public class ChangeLogManager {
 		
 		try {
 			final IContext context = Core.createSystemContext();
-			RestServices.LOGPUBLISH.info(service.getName() + ": Initializing change log. This might take a while...");
-			RestServices.LOGPUBLISH.info(service.getName() + ": Initializing change log. Marking old index dirty...");
+			RestServices.LOGPUBLISH.info(service.getRelativeUrl() + ": Initializing change log. This might take a while...");
+			RestServices.LOGPUBLISH.info(service.getRelativeUrl() + ": Initializing change log. Marking old index dirty...");
 			
 			//int NR_OF_BATCHES = 8;
 			
@@ -391,7 +390,7 @@ public class ChangeLogManager {
 					}
 				});
 			
-			RestServices.LOGPUBLISH.info(service.getName() + ": Initializing change log. Marking old index dirty... DONE. Rebuilding index for existing objects...");
+			RestServices.LOGPUBLISH.info(service.getRelativeUrl() + ": Initializing change log. Marking old index dirty... DONE. Rebuilding index for existing objects...");
 			
 			/** 
 			 * Republish all known objects, if they are part of the constraint (won' t result in an update if nothing actually changed)
@@ -409,7 +408,7 @@ public class ChangeLogManager {
 					}
 				});
 			
-			RestServices.LOGPUBLISH.info(service.getName() + ": Initializing change log. Rebuilding... DONE. Removing old entries...");
+			RestServices.LOGPUBLISH.info(service.getRelativeUrl() + ": Initializing change log. Rebuilding... DONE. Removing old entries...");
 
 			/**
 			 * Everything that is marked dirty, is either deleted earlier and shouldn' t be dirty, or should be deleted now. 
@@ -437,7 +436,7 @@ public class ChangeLogManager {
 			changeLog.set_ConfigurationHash(calculateServiceConfigurationHash(service.def));
 			changeLog.commit();
 			
-			RestServices.LOGPUBLISH.info(service.getName() + ": Initializing change log. DONE");
+			RestServices.LOGPUBLISH.info(service.getRelativeUrl() + ": Initializing change log. DONE");
 		}
 		finally {
 			isRebuildingChangeLog = false;
@@ -449,7 +448,7 @@ public class ChangeLogManager {
 	 * @param def
 	 * @return
 	 */
-	private String calculateServiceConfigurationHash(ServiceDefinition def) {
+	private String calculateServiceConfigurationHash(DataServiceDefinition def) {
 		IMetaObject returnType = Core.getMetaObject(Core.getReturnType(def.getOnPublishMicroflow()).getObjectType());
 		JSONObject exporttype = JSONSchemaBuilder.build(returnType);
 		

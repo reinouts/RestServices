@@ -1,20 +1,18 @@
 package restservices;
 
-import java.util.HashMap;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
-
-
-
-import restservices.publish.PublishedMicroflow;
-import restservices.publish.PublishedService;
+import restservices.publish.DataService;
+import restservices.publish.RestServiceHandler;
+import restservices.util.Utils;
 
 import com.mendix.core.Core;
 import com.mendix.logging.ILogNode;
 import com.mendix.systemwideinterfaces.core.meta.IMetaObject;
-
 import communitycommons.XPath;
 
 public class RestServices {
@@ -22,7 +20,7 @@ public class RestServices {
 	/**
 	 * Version of the RestServices module
 	 */
-	public static final String VERSION = "1.0.x";
+	public static final String VERSION = "2.1.3";
 
 	/**
 	 * Amount of objects that are processed by the module at the same time.
@@ -42,15 +40,18 @@ public class RestServices {
 	public static final String UTF8 = "UTF-8";
 	public static final String BASIC_AUTHENTICATION = "Basic";
 	public static final String CURRENTUSER_TOKEN = "'" + XPath.CurrentUser + "'";
-	public static final String STYLESHEET = 
-	"body { font-family: Arial; font-size: 0.8em; padding: 20px 60px; } " +
-	"td {padding: 5px 10px; border: 1px solid #e2e2e2; vertical-align: top; } " +
-	"tr { background-color: white; }" +
-	".table-nested-odd > tbody > tr {background-color: #e2e2e2; } " +
-	"h1 {color: navy; }" +
-	"hr {border-style:none; border-bottom: 1px dotted #aaa;}";
+	public static final String STYLESHEET =
+			"body { font-family: Arial; font-size: 0.8em; padding: 0px 60px; margin: 0px; }"+
+			"h1 { margin: 0 -60px 20px; background-color: #5c3566; font-size: em; padding: 20px 60px; color: white; box-shadow: 3px 3px 2px #666;text-transform:uppercase }"+
+			"table { border-spacing: 0px; margin-top:-4px } "+
+			"td:first-child { border-right: 1px dotted #ccc; font-weight: bold; text-align: right; color: #666;font-size:0.8em;padding-top:6px}"+
+			"td:first-child, th:first-child { background-color: #f9f9f9; }"+
+			"td { padding: 4px 8px; vertical-align: top; min-width: 100px; }"+
+			"a, a:active, a:visited { color: #5c3566 }"+
+			"h2 { margin-top: 40px; color: white; background-color:#333; border-radius:2px; padding: 8px 16px;}"+
+			"h2 small { font-size: 0.5em; } h2 a { color: white !important; text-decoration: none; }";
 
-	public static final String CONTENTTYPE_TEXTJSON = "text/json";
+	public static final String CONTENTTYPE_APPLICATIONJSON = "application/json";
 	public static final String CONTENTTYPE_FORMENCODED = "application/x-www-form-urlencoded";
 	public static final String CONTENTTYPE_MULTIPART = "multipart/form-data";
 	public static final String CONTENTTYPE_OCTET = "application/octet-stream";
@@ -61,8 +62,9 @@ public class RestServices {
 	public static final String HEADER_AUTHORIZATION = "Authorization";
 	public static final String HEADER_CONTENTTYPE = "Content-Type";
 	public static final String HEADER_WWWAUTHENTICATE = "WWW-Authenticate";
+	public static final String HEADER_CONTENTDISPOSITION = "Content-Disposition";
 	
-	public final static String PATH_REST = "rest/";
+	public static String PATH_REST = "rest/";
 	public static final String PATH_LIST = "list";
 	public static final String PATH_FEED = "feed";
 	public static final String PATH_CHANGES = "changes";
@@ -84,64 +86,54 @@ public class RestServices {
 	public static final String CHANGE_URL = "url";
 
 
-	static Map<String, PublishedService> services = new HashMap<String, PublishedService>();
-	static Map<String, PublishedService> servicesByEntity = new HashMap<String, PublishedService>();
-	static Map<String, PublishedMicroflow> microflowServices = new HashMap<String, PublishedMicroflow>();
-
-	public static PublishedService getServiceForEntity(String entityType) {
-		if (servicesByEntity.containsKey(entityType))
+	static Map<String, DataService> servicesByEntity = new ConcurrentHashMap<String, DataService>();
+	static Set<String> entitiesWithoutService = Collections.synchronizedSet(new HashSet<String>());
+	
+	public static DataService getServiceForEntity(String entityType) {
+		if (servicesByEntity.containsKey(entityType)) {
 			return servicesByEntity.get(entityType);
-		
-		//if not look into super entitites as well!
-		IMetaObject meta = Core.getMetaObject(entityType);
-		if (meta.getSuperObject() != null) {
-			PublishedService superService = getServiceForEntity(meta.getSuperName());
-			if (superService != null) {
-				servicesByEntity.put(entityType, superService);
-				return superService;
+		} else if (entitiesWithoutService.contains(entityType)) {
+			return null;
+		} else {
+			//if not look into super entitites as well!
+			IMetaObject meta = Core.getMetaObject(entityType);
+			if (meta.getSuperObject() != null) {
+				DataService superService = getServiceForEntity(meta.getSuperName());
+				if (superService != null) {
+					servicesByEntity.put(entityType, superService);
+					return superService;
+				}
 			}
+			entitiesWithoutService.add(entityType); //no service. Remember that
+			return null;
 		}
-		servicesByEntity.put(entityType, null); //no service. Remember that
-		return null;
 	}
-	
-	public static void registerService(String name, PublishedService def) {
-		PublishedService current = services.put(name,  def);
-		
-		if (current != null)
-			current.dispose();
-		
-		if (def.isGetObjectEnabled())
-			servicesByEntity.put(def.getSourceEntity(), def);
-		else {
-			current = servicesByEntity.get(def.getSourceEntity());
-			if (current != null && current.getName().equals(def.getName())) 
-				servicesByEntity.remove(def.getSourceEntity());
+
+	public static String getBaseUrl() {
+		return Utils.appendSlashToUrl(Core.getConfiguration().getApplicationRootUrl()) + PATH_REST;
+	}
+
+	/**
+	 * For unit testing only!
+	 */
+	public static void clearServices() {
+		RestServiceHandler.clearServices();
+		servicesByEntity.clear();
+	}
+
+	public static void registerServiceByEntity(String sourceEntity,
+			DataService def) {
+		servicesByEntity.put(sourceEntity, def);
+	}
+
+	public static String getAbsoluteUrl(String relativeUrl) {
+		return getBaseUrl() + Utils.removeLeadingSlash(Utils.appendSlashToUrl(relativeUrl));
+	}
+
+	public static void unregisterServiceByEntity(String sourceEntity,
+			DataService dataService) {
+		if (servicesByEntity.containsKey(sourceEntity) && servicesByEntity.get(sourceEntity) == dataService) {
+			servicesByEntity.remove(sourceEntity);
 		}
-
-		LOGPUBLISH.info("Registered data service '" + def.getName() + "'");
-	}
-
-	public static PublishedService getService(String name) {
-		return services.get(name);
-	}
-
-	public static Set<String> getServiceNames() {
-		Set<String> names = new HashSet<String>(services.keySet());
-		names.addAll(microflowServices.keySet());
-		return names;
-	}
-
-	public static String getServiceUrl(String name) {
-		return Core.getConfiguration().getApplicationRootUrl() + "rest/" + name + (microflowServices.containsKey(name) ? "" : "/");
-	}
-
-	public static void registerPublishedMicroflow(PublishedMicroflow s) {
-		microflowServices.put(s.getName(), s);
-		LOGPUBLISH.info("Registered microflow service '" + s.getName() + "'");
-	}
-	
-	public static PublishedMicroflow getPublishedMicroflow(String name) {
-		return microflowServices.get(name);
 	}
 }

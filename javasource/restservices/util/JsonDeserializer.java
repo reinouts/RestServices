@@ -1,9 +1,12 @@
 package restservices.util;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -14,6 +17,7 @@ import restservices.consume.RestConsumer;
 import restservices.proxies.HttpMethod;
 import restservices.proxies.Primitive;
 import restservices.proxies.RestPrimitiveType;
+import restservices.proxies.BooleanValue;
 
 import com.mendix.core.Core;
 import com.mendix.core.objectmanagement.member.MendixObjectReference;
@@ -22,6 +26,9 @@ import com.mendix.systemwideinterfaces.core.IContext;
 import com.mendix.systemwideinterfaces.core.IMendixIdentifier;
 import com.mendix.systemwideinterfaces.core.IMendixObject;
 import com.mendix.systemwideinterfaces.core.IMendixObjectMember;
+import com.mendix.systemwideinterfaces.core.meta.IMetaAssociation;
+import com.mendix.systemwideinterfaces.core.meta.IMetaObject;
+import com.mendix.systemwideinterfaces.core.meta.IMetaPrimitive;
 import com.mendix.systemwideinterfaces.core.meta.IMetaPrimitive.PrimitiveType;
 
 public class JsonDeserializer {
@@ -35,6 +42,9 @@ public class JsonDeserializer {
 	
 	public static void readJsonDataIntoMendixObject(IContext context,
 			Object jsonValue, IMendixObject target, boolean autoResolveReferences) throws Exception {
+		if (!Utils.hasDataAccess(target.getMetaObject(), context))
+			throw new IllegalStateException("During JSON deserialization: Object of type '" + target.getType() + "' cannot be altered by users with role(s) " + context.getSession().getUserRolesNames() + ". Please check the security rules");
+	
 		String targetType = target.getType();
 		
 		//primitive
@@ -51,7 +61,7 @@ public class JsonDeserializer {
 			}
 			else if (jsonValue instanceof Long || jsonValue instanceof Double || jsonValue instanceof Integer || jsonValue instanceof Float) {
 				prim.setPrimitiveType(RestPrimitiveType.Number);
-				prim.setNumberValue(Double.parseDouble(jsonValue.toString()));
+				prim.setNumberValue(new BigDecimal(jsonValue.toString()));
 			}
 			else
 				throw new RuntimeException("Unable to convert value of type '" + jsonValue.getClass().getName()+ "' to rest primitive: " + jsonValue.toString());
@@ -75,18 +85,11 @@ public class JsonDeserializer {
 	private static void readJsonObjectIntoMendixObject(IContext context, JSONObject object, IMendixObject target, boolean autoResolve) throws JSONException, Exception {
 		Iterator<String> it = object.keys();
 
+		Map<String, String> attributeNameMap = buildAttributeNameMap(target.getMetaObject());
+		
 		while(it.hasNext()) {
 			String attr = it.next();
-			String targetattr =  null;
-			
-			if (target.hasMember(attr)) 
-				targetattr = attr;
-			else if (target.hasMember(target.getMetaObject().getModuleName() + "." + attr)) 
-				targetattr = target.getMetaObject().getModuleName() + "." + attr;
-			if (target.hasMember("_" + attr)) //To support attributes with names which are reserved names in Mendix 
-				targetattr = "_" + attr;
-			else if (target.hasMember(target.getMetaObject().getModuleName() + "._" + attr)) 
-				targetattr = target.getMetaObject().getModuleName() + "._" + attr;
+			String targetattr =  attributeNameMap.get(attr.toLowerCase().replaceAll("[^a-zA-Z0-9_]","_"));
 			
 			if (targetattr == null) {
 				if (RestServices.LOGUTIL.isDebugEnabled())
@@ -114,8 +117,13 @@ public class JsonDeserializer {
 				
 				for(int i = 0; i < children.length(); i++) {
 					IMendixIdentifier child = readJsonDataIntoMendixObject(context, children.get(i), otherSideType, autoResolve);
-					if (child != null)
-						ids.add(child);
+					if (child != null) {
+						/*
+						 * The core.createMendixIdentifier should be unnecessary, however, there is a bug there, see
+						 * support ticket 102188 
+						 */
+						ids.add(Core.createMendixIdentifier(child.toLong()));
+					}
 				}
 				
 				((MendixObjectReferenceSet)member).setValue(context, ids);
@@ -123,19 +131,55 @@ public class JsonDeserializer {
 			
 			//Primitive member
 			else if (target.hasMember(targetattr)){
-				PrimitiveType attrtype = target.getMetaObject().getMetaPrimitive(targetattr).getType();
-				if (attrtype != PrimitiveType.AutoNumber)
-					target.setValue(context, targetattr, jsonAttributeToPrimitive(attrtype, object, attr));
+				IMetaPrimitive primitive = target.getMetaObject().getMetaPrimitive(targetattr);
+				if (primitive.getType() != PrimitiveType.AutoNumber)
+					target.setValue(context, targetattr, jsonAttributeToPrimitive(primitive, object, attr));
 			}
 		}
 		Core.commit(context, target);
 	}
 
-	private static Object jsonAttributeToPrimitive(PrimitiveType type,	JSONObject object, String attr) throws Exception {
-		switch(type) {
+	private static final Map<String, Map<String,String>> metaAttributeMaps = new HashMap<String, Map<String, String>>();
+	
+	private static Map<String, String> buildAttributeNameMap(IMetaObject metaObject) {
+		if (metaAttributeMaps.containsKey(metaObject.getName()))
+			return metaAttributeMaps.get(metaObject.getName());
+		
+		Map<String, String> attrMap = new HashMap<String,String>();
+		
+		for(IMetaAssociation assoc : metaObject.getMetaAssociationsParent()) {
+			String name = assoc.getName().split("\\.")[1];
+			attrMap.put(name.toLowerCase(), assoc.getName());
+			if (name.startsWith("_"))
+				attrMap.put(name.substring(1).toLowerCase(), assoc.getName());
+		}
+		
+		for(IMetaPrimitive prim : metaObject.getMetaPrimitives()) {
+			String name = prim.getName();
+			attrMap.put(name.toLowerCase(), name);
+			if (name.startsWith("_"))
+				attrMap.put(name.substring(1).toLowerCase(), name);
+		}
+		
+		metaAttributeMaps.put(metaObject.getName(), attrMap);
+		return attrMap;
+	}
+
+	@SuppressWarnings("deprecation")
+	private static Object jsonAttributeToPrimitive(IMetaPrimitive primitive, JSONObject object, String attr) throws Exception {
+		switch(primitive.getType()) {
 		case Currency:
 		case Float:
+			if (object.isNull(attr))
+				return null;
 			return object.getDouble(attr);
+		case Decimal:
+			if (object.isNull(attr))
+				return null;
+			String asString = object.optString(attr, null);
+			if (asString != null)
+				return new BigDecimal(asString);
+			return new BigDecimal(object.getDouble(attr));
 		case Boolean:
 			return object.getBoolean(attr);
 		case DateTime: 
@@ -143,17 +187,31 @@ public class JsonDeserializer {
 				return null;
 			return new Date(object.getLong(attr));
 		case Enum:
+			// support for built-in BooleanValue enumeration
+			if ("RestServices.BooleanValue".equals(primitive.getEnumeration().getName())) {
+				if(object.isNull(attr))
+					return null;
+				return object.getBoolean(attr) ? BooleanValue._true.toString() : BooleanValue._false.toString();
+			}
+			
+			// fall-through intentional
 		case HashString:
 		case String:
+			if (object.isNull(attr))
+				return null;
 			return object.getString(attr);
 		case AutoNumber:
 		case Long:
+			if (object.isNull(attr))
+				return null;
 			return object.getLong(attr);
 		case Integer:
+			if (object.isNull(attr))
+				return null;
 			return object.getInt(attr);
 		case Binary:
 		default:
-			throw new Exception("Unsupported attribute type '" + type + "' in attribute '" + attr + "'");
+			throw new Exception("Unsupported attribute type '" + primitive.getType() + "' in attribute '" + attr + "'");
 		}	
 	}
 

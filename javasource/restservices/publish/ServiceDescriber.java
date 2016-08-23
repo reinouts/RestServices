@@ -3,15 +3,12 @@ package restservices.publish;
 import org.apache.commons.httpclient.HttpStatus;
 import org.json.JSONObject;
 
-import com.mendix.core.Core;
-
-import communitycommons.StringUtils;
-
 import restservices.RestServices;
-import restservices.proxies.ServiceDefinition;
+import restservices.proxies.DataServiceDefinition;
 import restservices.publish.RestServiceRequest.ResponseType;
 import restservices.util.JSONSchemaBuilder;
-import restservices.util.Utils;
+import com.mendix.core.Core;
+import communitycommons.StringUtils;
 
 public class ServiceDescriber {
 
@@ -27,8 +24,8 @@ public class ServiceDescriber {
 			.key("RestServices").value(RestServices.VERSION)
 			.key("services").array();
 		
-		for (String service : RestServices.getServiceNames())
-			rsr.datawriter.value(RestServices.getServiceUrl(service) + "?" + RestServices.PARAM_ABOUT);
+		for (String service : RestServiceHandler.getServiceBaseUrls())
+			rsr.datawriter.value(RestServices.getAbsoluteUrl(service) + "?" + RestServices.PARAM_ABOUT);
 		
 		rsr.datawriter.endArray().endObject();
 		
@@ -36,10 +33,10 @@ public class ServiceDescriber {
 	}
 
 	private RestServiceRequest rsr;
-	private ServiceDefinition def;
+	private DataServiceDefinition def;
 	private boolean isHTML;
 	
-	public ServiceDescriber(RestServiceRequest rsr, ServiceDefinition def) {
+	public ServiceDescriber(RestServiceRequest rsr, DataServiceDefinition def) {
 		this.rsr = rsr;
 		this.def = def;
 		this.isHTML = rsr.getResponseContentType() == ResponseType.HTML;
@@ -48,21 +45,20 @@ public class ServiceDescriber {
 	public void serveServiceDescription() {
 		rsr.startDoc();
 		if (isHTML) { 
-			rsr.write("<a href='/rest/'>&laquo;Go Back</a><h1>Service: " + def.getName() + "</h1>");
+			rsr.write("<h1>Service: " + def.getName() + "</h1><a href='/" + RestServices.PATH_REST + "'>");
 		}
-
 		
 		rsr.datawriter.object()
 			.key("name").value(def.getName())
 			.key("description").value(def.getDescription())
-			.key("baseurl").value(RestServices.getServiceUrl(def.getName()))
+			.key("baseurl").value(RestServices.getAbsoluteUrl(def.getName()))
 			.key("worldreadable").value("*".equals(def.getAccessRole()))
 			.key("requiresETags").value(def.getUseStrictVersioning());
 			
 		if (isHTML)
 			rsr.datawriter.endObject();
 		else
-			rsr.datawriter.key("endpoints").object();
+			rsr.datawriter.key("endpoints").array();
 			
 		startEndpoint("GET", "?" + RestServices.PARAM_ABOUT, "This page");
 		addContentType();
@@ -81,7 +77,7 @@ public class ServiceDescriber {
 				endEndpoint();
 			}
 			if (def.getEnableGet()) {
-				startEndpoint("GET", "&lt;" + def.getSourceKeyAttribute() + "&gt;", "Returns the object specified by the URL, which is retrieved from the database by using the given key.");
+				startEndpoint("GET", "<" + def.getSourceKeyAttribute() + ">", "Returns the object specified by the URL, which is retrieved from the database by using the given key.");
 				addEndpointParam(RestServices.HEADER_IFNONEMATCH + " (header)", "If the current version of the object matches the ETag provided by this optional header, status 304 NOT MODIFIED will be returned instead of returning the whole objects. This header can be used for caching / performance optimization");
 				addContentType();
 				
@@ -127,7 +123,7 @@ public class ServiceDescriber {
 			}
 		
 		if (!isHTML)
-			rsr.datawriter.endObject().endObject();
+			rsr.datawriter.endArray().endObject();
 		
 		rsr.endDoc();
 	}
@@ -157,11 +153,16 @@ public class ServiceDescriber {
 	}
 
 	private void startEndpoint(String method, String path, String description) {
-		String url = RestServices.getServiceUrl(def.getName()) + path;
-		if (isHTML)
-			rsr.write("<h2>"+ ("GET".equals(method) ? Utils.autoGenerateLink(url) : StringUtils.HTMLEncode(url)) + " (" + method + ")</h2>")
+		String url = RestServices.getAbsoluteUrl(def.getName()) + path;
+		if (isHTML) {
+			String link = "<small>" + RestServices.getBaseUrl() + "</small>" + StringUtils.HTMLEncode(url.substring(RestServices.getBaseUrl().length()));
+			if ("GET".equals(method))
+				link = "<a href='" + url + "'>" + link + "</a>";
+			
+			rsr.write("<h2>" + method + "&raquo;&nbsp;&nbsp;&nbsp;" + link + "</h2>")
 				.write("<p>" + description + "</p>")
 				.write("<table><tr><th>Parameter</th><th>Description</th></tr>");
+		}
 		else
 			rsr.datawriter.object()
 				.key("path").value(method + " " + url)

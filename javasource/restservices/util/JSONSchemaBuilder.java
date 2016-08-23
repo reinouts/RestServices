@@ -97,8 +97,9 @@ public class JSONSchemaBuilder {
 		//persistent object, describe this object in the service as well
 		else {
 			buildTypeDefinition(child); //make sure the type is available in the schema
-			type = new JSONObject().put("$ref", "#/definitions/" + typeMap.get(child.getName()));
-			if ("type1".equals(type))
+			String targetType = typeMap.get(child.getName());
+			type = new JSONObject().put("$ref", "#/definitions/" + targetType);
+			if ("type1".equals(targetType))
 				hasReferenceToRoot  = true;
 		}
 
@@ -118,25 +119,27 @@ public class JSONSchemaBuilder {
 		return type;
 	}
 
+	@SuppressWarnings("deprecation")
 	private static JSONObject primitiveToJSONType(PrimitiveType type) {
 		switch(type) {
 		case AutoNumber:
 		case DateTime:
 		case Integer:
 		case Long:  
-			return new JSONObject().put("type", "number").put("multipleOf", "1.0");
+			return orNull(new JSONObject().put("type", "number").put("multipleOf", "1.0"));
 		case Binary:
 			return null;
 		case Boolean:
-			return new JSONObject().put("type", "boolean");
+			return orNull(new JSONObject().put("type", "boolean"));
 		case Currency:
 		case Float:
-			return new JSONObject().put("type", "number");
+			return orNull(new JSONObject().put("type", "number"));
 		case Enum:
 			return orNull(new JSONObject().put("type", "string")); //TODO: use enum from the meta model!
 		case HashString:
 		case String:
-			return /*orNull*/(new JSONObject().put("type", "string")); //MWE: is it allowed to pass 'null' as string value, probably not, although it is semantically the same as not passing a value...
+		case Decimal:
+			return orNull(new JSONObject().put("type", "string")); 
 		default:
 			throw new IllegalStateException("Unspported primitive type:  " + type);
 		}
@@ -144,7 +147,7 @@ public class JSONSchemaBuilder {
 	
 	private static JSONObject orNull(JSONObject type) {
 		return new JSONObject().put("oneOf", new JSONArray()
-			.put(new JSONObject().put("type", JSONObject.NULL))
+			.put(new JSONObject().put("type", "null"))
 			.put(type)
 		);
 	}

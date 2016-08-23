@@ -4,26 +4,33 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.commons.lang.StringUtils;
-import org.apache.commons.lang.exception.ExceptionUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 
 import com.google.common.collect.ImmutableMap;
 import com.mendix.core.Core;
 import com.mendix.core.CoreException;
 import com.mendix.core.CoreRuntimeException;
 import com.mendix.systemwideinterfaces.core.IDataType;
+import com.mendix.systemwideinterfaces.core.IDataType.DataTypeEnum;
 import com.mendix.systemwideinterfaces.core.meta.IMetaPrimitive;
 
+import communitycommons.XPath;
 import restservices.RestServices;
-import restservices.proxies.ServiceDefinition;
+import restservices.proxies.DataServiceDefinition;
 import restservices.util.Utils;
+import system.proxies.User;
+import system.proxies.UserRole;
 
 public class ConsistencyChecker {
-	public static String check(ServiceDefinition def) {
+	public static String check(DataServiceDefinition def) {
 		List<String> errors = new ArrayList<String>();
 		
 		if (!Utils.isValidKey(def.getName()))
 			errors.add("Invalid service name");
+		
+		if (!def.getName().toLowerCase().equals(def.getName()))
+			errors.add("Service name should be lowercased");
 		
 		checkSource(def, errors);
 		
@@ -41,30 +48,59 @@ public class ConsistencyChecker {
 		
 		//TODO: should only one service that defines 'GET object', which will be the default
 		
-		//TODO: check security
+		String secError = checkAccessRole(def.getAccessRole());
+		if (secError != null)
+			errors.add(secError);
 		
 		return errors.size() == 0 ? null : "* " + StringUtils.join(errors, "\n* ");
 	}
 
-	private static void checkOnDeleteMF(ServiceDefinition def,
+	public static String checkAccessRole(String accessRole) {
+		if (accessRole == null || accessRole.trim().isEmpty())
+			return "No access role has been set. Use '*' for all, or provide a Userrole name or Microflow name";
+		
+		if ("*".equals(accessRole))
+			return null;
+		
+		try {
+			if (null != XPath.create(Core.createSystemContext(), UserRole.class).eq(UserRole.MemberNames.Name, accessRole).first())
+				return null;
+		} catch (CoreException e) {
+			throw new RuntimeException(e);
+		}
+		
+		if (!Utils.microflowExists(accessRole))
+			return "'" + accessRole + "' doesn't seem to be an existing userrole or microflow";
+		
+		if (Utils.getArgumentTypes(accessRole).size() != 0)
+			return "The authentication microflow '" + accessRole + "' shouldn' t take any arguments";
+		
+		IDataType rt = Core.getReturnType(accessRole);
+		if (rt.getType() != DataTypeEnum.Object || !Core.isSubClassOf(User.entityName, rt.getObjectType()))
+			return "The authentication microflow '" + accessRole + "' should return a 'System.User' object or derivate thereof";
+		
+		return null;
+	}
+
+	private static void checkOnDeleteMF(DataServiceDefinition def,
 			List<String> errors) {
 		// TODO Auto-generated method stub
 		
 	}
 
-	private static void checkOnUpdateMF(ServiceDefinition def,
+	private static void checkOnUpdateMF(DataServiceDefinition def,
 			List<String> errors) {
 		try {
-			PublishedService.extractArgInfoForUpdateMicroflow(def);
+			DataService.extractArgInfoForUpdateMicroflow(def);
 		}
 		catch(Exception e) {
 			errors.add("Invalid update microflow: " + e.getMessage());
 		}
 	}
 
-	private static void checkOnPublishMf(ServiceDefinition def,
+	private static void checkOnPublishMf(DataServiceDefinition def,
 			List<String> errors) {
-		if (Core.getInputParameters(def.getOnPublishMicroflow()) == null)
+		if (!Utils.microflowExists(def.getOnPublishMicroflow()))
 			errors.add("OnPublishMicroflow is not a valid microflow");
 		else {
 			Map<String, String> args = Utils.getArgumentTypes(def.getOnPublishMicroflow());
@@ -79,7 +115,7 @@ public class ConsistencyChecker {
 		}
 	}
 
-	private static void checkSource(ServiceDefinition def, List<String> errors) {
+	private static void checkSource(DataServiceDefinition def, List<String> errors) {
 		if (def.getSourceEntity() == null || Core.getMetaObject(def.getSourceEntity()) == null)
 			errors.add("Invalid source entity");
 		else {
